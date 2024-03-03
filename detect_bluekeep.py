@@ -1006,41 +1006,31 @@ def configure_logging(enable_debug, logfile):
     #os.chdir(dname)
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--version', action='version', version=f'{os.path.basename(__file__)} {VERSION}')
-    parser.add_argument('-d', '--debug', action='store_true', help='verbose output')
-    parser.add_argument('--notls', action='store_false', help='disable TLS security')
-    parser.add_argument('-l', '--logfile', nargs="?", help='log to file')
-    parser.add_argument('-w', '--workers', type=int, default=300, help='number of parallel worker tasks')
-    parser.add_argument('host', nargs="*", help='List of targets (addresses or subnets)')
-    args = parser.parse_args()
+# Asegúrate de definir o importar configure_logging() y check_host() en alguna parte de tu código.
 
-    if not args.host:
-        parser.print_help()
-        return
+def main(hosts, debug=False, notls=True, logfile=None, workers=300):
+    # Configura logging basado en los argumentos proporcionados
+    configure_logging(debug, logfile)
 
-    configure_logging(args.debug, args.logfile)
+    if not hosts:
+        print("No hosts provided. Exiting.")
+        return []
 
     ips = []
-    for ip in args.host:
-        cmd = True
+    for ip in hosts:
         ips += [addr.exploded for addr in IPv4Network(ip, strict=False)]
-    th = []
     ips = set(ips)
-    log.info(f"Going to scan {len(ips)} hosts, in {args.workers} parallel tasks")
-    # with progressbar.ProgressBar(max_value=len(ips)) as bar:
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
-        for ip in ips:
-            ft_dp = executor.submit(check_host, ip, 3389, args.notls)
-            th.append(ft_dp)
-        for r in concurrent.futures.as_completed(th):
-            ip, status = r.result()
-            # if STATUS_NORDP in status:
-            #    continue
-            mark = '+' if status == STATUS_VULNERABLE else '-'
-            log.info(f"[{mark}] [{ip}] Status: {status}")
+    print(f"Going to scan {len(ips)} hosts, in {workers} parallel tasks")  # Usar print si logging no funciona
 
+    results = []  # Lista para almacenar los resultados
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_ip = {executor.submit(check_host, ip, 3389, notls): ip for ip in ips}
+        for future in concurrent.futures.as_completed(future_to_ip):
+            ip = future_to_ip[future]
+            status = future.result()
+            mark = '+' if status == "STATUS_VULNERABLE" else '-'
+            print(f"[{mark}] [{ip}] Status: {status}")  # Usar print si logging no funciona
+            # Agrega el resultado a la lista de resultados
+            results.append({"ip": ip, "status": status, "mark": mark})
 
-if __name__ == "__main__":
-    main()
+    return results
